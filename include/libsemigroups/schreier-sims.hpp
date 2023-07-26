@@ -56,6 +56,7 @@
 #include <cstddef>        // for size_t
 #include <string>         // for operator+, basic_string
 #include <unordered_set>  // for unordered_set
+#include <random>
 
 #include "adapters.hpp"          // for action, degree, inverse
 #include "bruidhinn-traits.hpp"  // for detail::BruidhinnTraits
@@ -229,8 +230,12 @@ namespace libsemigroups {
     //! \exceptions
     //! \no_libsemigroups_except
     SchreierSims()
-        : _base(),
+        :
+			_gen(std::random_device()()),
+			_dist(),
+			_base(),
           _base_size(0),
+          _nr_random(20),
           _domain(),
           _finished(false),
           _one(this->to_internal(One()(N))),
@@ -239,6 +244,7 @@ namespace libsemigroups {
           _strong_gens(),
           _tmp_element1(this->internal_copy(_one)),
           _tmp_element2(this->internal_copy(_one)),
+          _random_element(this->internal_copy(_one)),
           _transversal(),
           _inversal() {
       init();
@@ -249,6 +255,7 @@ namespace libsemigroups {
       this->internal_free(_one);
       this->internal_free(_tmp_element1);
       this->internal_free(_tmp_element2);
+      this->internal_free(_random_element);
     }
 
     //! Default move constructor.
@@ -287,6 +294,17 @@ namespace libsemigroups {
       }
     }
 
+    void add_generator_nosift(const_element_reference x) {
+      if (!has_valid_degree(x)) {
+        LIBSEMIGROUPS_EXCEPTION(
+            "generator degree incorrect, expected %llu, got %llu",
+            uint64_t(N),
+            uint64_t(Degree()(x)));
+      } else {
+        _finished = false;
+        _strong_gens.push_back(0, x);
+      }
+    }
     //! Get a generator.
     //!
     //! \param index the index of the generator we want.
@@ -513,7 +531,7 @@ namespace libsemigroups {
       if (empty()) {
         return 1;
       }
-      run();
+			run();
       uint64_t out = 1;
       for (index_type i = 0; i < _base_size; i++) {
         out *= _orbits.size(i);
@@ -724,6 +742,7 @@ namespace libsemigroups {
     //! \returns
     //! (None)
     void run() {
+			random_run();
       if (_finished || _strong_gens.size(0) == 0) {
         return;
       }
@@ -742,7 +761,7 @@ namespace libsemigroups {
       }
 
       index_type first = _strong_gens.size(0) - 1;
-      LIBSEMIGROUPS_ASSERT(first < N);
+      LIBSEMIGROUPS_ASSERT(first < N * N);
       for (index_type i = 1; i < _base_size + 1; i++) {
         point_type beta      = _base[i - 1];
         index_type old_first = _strong_gens.size(i);
@@ -807,6 +826,119 @@ namespace libsemigroups {
       _finished = true;
     }
 
+		void random_run() {
+      if (_finished || _strong_gens.size(0) == 0) {
+        return;
+      }
+
+			prinitialize();
+
+			for (index_type j = 0; j < _strong_gens.size(0); j++) {
+				internal_element_type x = _strong_gens.at(0, j);
+				index_type   k = 0;
+				while (k < _base_size
+							 && Action()(_base[k],
+													 this->to_external_const(x)) == _base[k]) {
+					++k;
+				}
+				if (k == _base_size) {  // all base points fixed
+					point_type pt = *first_non_fixed_point(x);
+					internal_add_base_point(pt);
+				}
+			}
+
+			index_type first = _strong_gens.size(0) - 1;
+			LIBSEMIGROUPS_ASSERT(first < N * N);
+			for (index_type i = 1; i < _base_size + 1; i++) {
+				point_type beta      = _base[i - 1];
+				index_type old_first = _strong_gens.size(i);
+				// set up the strong generators
+				for (index_type j = first; j < _strong_gens.size(i - 1); j++) {
+					internal_element_type x = _strong_gens.at(i - 1, j);
+					if (beta == Action()(beta, this->to_external_const(x))) {
+						_strong_gens.push_back(i, x);
+					}
+				}
+				first = old_first;
+				// find the orbit of <beta> under strong_gens[i - 1]
+				orbit_enumerate(i - 1);
+			}
+
+			index_type c = 0;
+			while (c < _nr_random) {
+				pseudorandom();
+				_tmp_element2 = _random_element;
+				index_type depth = internal_sift();
+				bool propagate = false;
+				if (depth < _base_size) {
+					propagate = true;
+				} else if (!InternalEqualTo()(_tmp_element2, _one)) {
+					propagate = true;
+					internal_add_base_point(*first_non_fixed_point(_tmp_element2));
+				}
+				if (propagate) {
+					_strong_gens.push_back(0, this->internal_copy(_tmp_element2));
+					orbit_add_gen(0, _tmp_element2);
+					for (index_type l = 1; l <= depth; l++) {
+						_strong_gens.push_back(l, _strong_gens.back(0));
+						orbit_add_gen(l, _tmp_element2);
+						// add generator to orbit of base[l]
+					}
+					c = 0;
+				} else {
+					c++;
+				}
+			}
+			_finished = true;
+		}
+
+		void pseudorandom() {
+			index_type e = _dist(_gen) % 2;
+			index_type s = _dist(_gen) % _pr_list.size(); // pick from gens
+			index_type t = _dist(_gen) % (_pr_list.size() - 1);
+			if (t >= s) {
+				++t;
+			} // pick from gens \ {s}
+			_tmp_element1 = _one;
+			if ((_dist(_gen) % 2) == 1) {
+				Product()(this->to_external(_tmp_element1),
+									this->to_external_const(_pr_list.at(s)),
+									(e == 1) ?
+									Inverse()(this->to_external_const(_pr_list.at(t))):
+									this->to_external_const(_pr_list.at(t)));
+				_pr_list.at(s) = this->internal_copy(_tmp_element1);
+				Product()(this->to_external(_tmp_element1),
+									this->to_external_const(_random_element),
+									this->to_external_const(_pr_list.at(s)));
+				_random_element = this->internal_copy(_tmp_element1);
+			} else {
+				Product()(this->to_external(_tmp_element1),
+									(e == 1) ?
+									Inverse()(this->to_external_const(_pr_list.at(t))):
+									this->to_external_const(_pr_list.at(t)),
+									this->to_external_const(_pr_list.at(s)));
+				_pr_list.at(s) = this->internal_copy(_tmp_element1);
+				Product()(this->to_external(_tmp_element1),
+									this->to_external_const(_pr_list.at(s)),
+									this->to_external_const(_random_element));
+				_random_element = this->internal_copy(_tmp_element1);
+			}
+		}
+		void prinitialize() {
+			index_type pr_size = std::max(static_cast<index_type>(11),
+																		static_cast<index_type>(_strong_gens.size(0)));
+
+			index_type i;
+			for (i = 0; i < _strong_gens.size(0); ++i) {
+				_pr_list.push_back(this->internal_copy(_strong_gens.at(0, i)));
+			}
+			for (; i < pr_size; ++i) {
+				_pr_list.push_back(_pr_list.at(i - _strong_gens.size(0)));
+			}
+			for (int i = 0; i < 50; ++i) {
+				pseudorandom();
+			}
+		}
    private:
     void init() {
       _base_size = 0;
@@ -900,17 +1032,21 @@ namespace libsemigroups {
       LIBSEMIGROUPS_ASSERT(false);
       return _domain.cend();
     }
-
+		std::mt19937                                       _gen;
+		std::uniform_int_distribution<index_type>          _dist;
     std::array<point_type, N>                          _base;
     index_type                                         _base_size;
+		index_type                                         _nr_random;
     domain_type                                        _domain;
     bool                                               _finished;
     internal_element_type                              _one;
-    detail::StaticTriVector2<point_type, N>            _orbits;
+    detail::StaticVector2<point_type, N * N>               _orbits;
     detail::Array2<bool, N>                            _orbits_lookup;
     detail::StaticTriVector2<internal_element_type, N> _strong_gens;
+    std::vector<internal_element_type>                  _pr_list;
     internal_element_type                              _tmp_element1;
     internal_element_type                              _tmp_element2;
+    internal_element_type                              _random_element;
     detail::Array2<internal_element_type, N>           _transversal;
     detail::Array2<internal_element_type, N>           _inversal;
   };

@@ -46,6 +46,7 @@ namespace libsemigroups {
     SchreierSims<1> S;
     using Perm = decltype(S)::element_type;
     S.add_generator(Perm({0}));
+		S.random_run();
     REQUIRE(S.size() == 1);
     REQUIRE(S.contains(Perm({0})));
     // REQUIRE(!S.contains(Perm({1, 0})));
@@ -59,8 +60,10 @@ namespace libsemigroups {
     SchreierSims<2> S;
     using Perm = SchreierSims<2>::element_type;
     S.add_generator(Perm({0, 1}));
+		S.random_run();
     REQUIRE(S.size() == 1);
     REQUIRE(S.sift(Perm({1, 0})) == Perm({1, 0}));
+		S.random_run();
     REQUIRE(!S.contains(Perm({1, 0})));
     REQUIRE(S.contains(Perm({0, 1})));
   }
@@ -80,16 +83,20 @@ namespace libsemigroups {
 
     S->add_generator(p);
 
+		S->random_run();
     REQUIRE(S->size() == 1);
     REQUIRE(S->contains(p));
 
     std::swap(p[30], p[31]);
+		S->random_run();
     REQUIRE(!S->contains(p));
     std::swap(p[73], p[32]);
+		S->random_run();
     REQUIRE(!S->contains(p));
     std::swap(p[73], p[32]);
     std::swap(p[30], p[31]);
     std::swap(p[0], p[99]);
+		S->random_run();
     REQUIRE(!S->contains(p));
     delete S;
   }
@@ -106,6 +113,7 @@ namespace libsemigroups {
     using Perm = decltype(S)::element_type;
     S.add_generator(Perm({1, 0, 2, 3, 4}));
     S.add_generator(Perm({1, 2, 3, 4, 0}));
+		S.random_run();
     REQUIRE(S.size() == 120);
   }
 
@@ -3278,5 +3286,30 @@ namespace libsemigroups {
       }
     }
   }
+  LIBSEMIGROUPS_TEST_CASE("SchreierSims",
+                          "045",
+                          "nothing",
+                          "[quick][schreier-sims]") {
+    SchreierSims<7> T;
+    using Perm = decltype(T)::element_type;
+    T.add_generator(Perm({1, 2, 3, 4, 5, 6, 0}));
+    T.add_generator(Perm({1, 0, 2, 3, 4, 5, 6}));
+    T.random_run();
+		REQUIRE(T.size() == 5040);
+  }
+  LIBSEMIGROUPS_TEST_CASE("SchreierSims",
+                          "046",
+                          "nothing pt. 2",
+                          "[quick][schreier-sims]") {
+    SchreierSims<12> S;
+    using Perm = decltype(S)::element_type;
+    S.add_generator(Perm({1, 2, 0, 3, 4, 5, 6, 7, 8, 9, 10, 11}));
+    S.add_generator(Perm({0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 1}));
+		S.random_run();
 
+    REQUIRE(!S.contains(Perm({11, 10, 0, 6, 8, 2, 3, 5, 4, 7, 9, 1})));
+    REQUIRE(S.contains(Perm({7, 11, 2, 3, 0, 6, 9, 10, 8, 5, 4, 1})));
+    // REQUIRE(!S.contains(Perm({11, 10, 0, 6, 8, 2, 3, 5, 4, 7, 9, 1, 12})));
+    REQUIRE(S.size() == 239500800);
+  }
 }  // namespace libsemigroups
